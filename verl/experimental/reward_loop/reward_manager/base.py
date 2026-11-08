@@ -75,8 +75,13 @@ class RewardManagerBase(ABC):
         """
         prompt_length = data.batch["prompts"].size(1)
         valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(dim=1)
+        score_index = valid_response_length - 1
+        if "response_mask" in data.batch.keys():
+            # keep the score on the last generated token, a trailing chat template suffix has response_mask 0
+            response_mask = data.batch["response_mask"]
+            positions = torch.arange(response_mask.size(1), device=response_mask.device)
+            last_generated = torch.where(response_mask.bool(), positions, -1).amax(dim=1)
+            score_index = torch.where(last_generated >= 0, last_generated, score_index)
         rm_scores = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
-        rm_scores[torch.arange(rm_scores.size(0), device=rm_scores.device), valid_response_length - 1] = (
-            rm_scores.new_tensor(scores)
-        )
+        rm_scores[torch.arange(rm_scores.size(0), device=rm_scores.device), score_index] = rm_scores.new_tensor(scores)
         return rm_scores

@@ -516,6 +516,29 @@ def test_agent_loop_postprocess_scores_last_generated_token():
     torch.testing.assert_close(merged.batch["rm_scores"], expected)
 
 
+def test_reward_loop_assemble_rm_scores_uses_last_generated_token():
+    """The colocated reward loop path puts the score on the last response_mask=1 token too."""
+    from verl import DataProto
+    from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
+
+    data = DataProto.from_dict(
+        tensors={
+            "prompts": torch.tensor([[101, 102], [101, 102], [101, 102]]),
+            "responses": torch.tensor([[11, 12, 13, 0], [11, 12, 0, 0], [11, 12, 13, 0]]),
+            "attention_mask": torch.tensor([[1, 1, 1, 1, 1, 0], [1, 1, 1, 1, 0, 0], [1, 1, 1, 1, 1, 0]]),
+            "response_mask": torch.tensor([[1, 1, 0, 0], [1, 1, 0, 0], [0, 0, 0, 0]]),
+        }
+    )
+
+    rm_scores = RewardManagerBase.assemble_rm_scores(data, [1.0, 2.0, 3.0])
+
+    expected = torch.zeros(3, 4)
+    expected[0, 1] = 1.0  # trailing chat template suffix
+    expected[1, 1] = 2.0  # ends with a generated token
+    expected[2, 2] = 3.0  # no generated token: keep the last valid token
+    torch.testing.assert_close(rm_scores, expected)
+
+
 @pytest.mark.asyncio
 async def test_agent_loop_postprocess_accepts_read_only_routed_experts_on_cpu():
     class _DummyWorker:
